@@ -1,0 +1,31 @@
+#!/bin/bash
+# Install a persistent, system-wide Rust toolchain.
+#
+# PyTorch's build compiles the torch._rust extension (see setup.py
+# _build_rust_extensions), so cargo must be on PATH for the unprivileged CI
+# build user at build time. install_cache.sh previously installed rust only
+# transiently to build sccache and then ran `rustup self uninstall`, which is
+# why cargo was missing. Install it once, system-wide, for all later steps.
+
+set -ex
+
+# Pinned version; see ci_commit_pins/rust.txt. Bump deliberately.
+RUST_VERSION="$(cat rust.txt)"
+
+# System-wide locations; must match RUSTUP_HOME/CARGO_HOME/PATH in the Dockerfile.
+export RUSTUP_HOME="${RUSTUP_HOME:-/opt/rust}"
+export CARGO_HOME="${CARGO_HOME:-/opt/rust}"
+
+apt-get update
+apt-get install -y --no-install-recommends ca-certificates curl
+rm -rf /var/lib/apt/lists/*
+
+curl --retry 3 --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+  sh -s -- -y --no-modify-path --profile minimal --default-toolchain "${RUST_VERSION}"
+
+# Let the unprivileged build user (jenkins) read the toolchain and write the
+# cargo registry/git caches at job time. Mirrors the official rust docker image.
+chmod -R a+w "${RUSTUP_HOME}"
+
+"${CARGO_HOME}/bin/cargo" --version
+"${CARGO_HOME}/bin/rustc" --version
